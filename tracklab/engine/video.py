@@ -86,6 +86,8 @@ class VideoOnlineTrackingEngine:
         for model_name in model_names:
             self.callback("on_module_start", task=model_name, dataloader=[])
 
+        last_batch = None
+        
         while video_cap.isOpened():
             frame_idx += 1
             ret, frame = video_cap.read()
@@ -101,23 +103,29 @@ class VideoOnlineTrackingEngine:
 
             image_metadata = pd.DataFrame([base_metadata])
 
+            
             for model_name in model_names:
                 model = self.models[model_name]
                 if len(detections) > 0:
                     dets = detections[detections.image_id == frame_idx]
                 else:
                     dets = pd.DataFrame()
+
                 if model.level == "video":
-                    raise "Video-level not supported for online video tracking"
+                    # raise "Video-level not supported for online video tracking"
+                    if last_batch:
+                        detections, image_metadata = self.default_step(last_batch, model_name, detections, image_metadata)
                 elif model.level == "image":
                     batch = model.preprocess(image=image, detections=dets, metadata=image_metadata.iloc[0])
                     batch = type(model).collate_fn([(frame_idx, batch)])
                     detections, image_metadata = self.default_step(batch, model_name, detections, image_metadata)
+                    last_batch = batch
                 elif model.level == "detection":
                     for idx, detection in dets.iterrows():
                         batch = model.preprocess(image=image, detection=detection, metadata=image_metadata.iloc[0])
                         batch = type(model).collate_fn([(detection.name, batch)])
                         detections, image_metadata = self.default_step(batch, model_name, detections, image_metadata)
+                        last_batch = batch
 
             self.callback("on_image_loop_end",
                           image_metadata=image_metadata.iloc[0], image=image,
@@ -154,12 +162,20 @@ class VideoOnlineTrackingEngine:
                 batch_metadatas = image_pred.loc[np.isin(image_pred.index, batch_detections.image_id)]
             else:
                 batch_metadatas = image_pred
-            batch_detections = self.models[task].process(
-                batch=batch,
-                detections=batch_detections,
-                metadatas=batch_metadatas,
-                **kwargs,
-            )
+
+            if model.level == "video":
+                batch_detections = self.models[task].process(
+                    detections=batch_detections,
+                    metadatas=batch_metadatas,
+                    **kwargs,
+                )
+            else:
+                batch_detections = self.models[task].process(
+                    batch=batch,
+                    detections=batch_detections,
+                    metadatas=batch_metadatas,
+                    **kwargs,
+                )
 
         if isinstance(batch_detections, tuple):
             batch_detections, batch_metadatas = batch_detections

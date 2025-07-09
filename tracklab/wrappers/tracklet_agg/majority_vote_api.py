@@ -37,7 +37,10 @@ class MajorityVoteTracklet(VideoLevelModule):
     def process(self, detections: pd.DataFrame, metadatas: pd.DataFrame):
         
         detections[self.output_columns] = np.nan
-        
+
+        log.info(f"Running Majority Vote Tracklet on {len(detections)} detections")
+        log.info(f"Attributes: {self.attributes}")
+
         if "track_id" not in detections.columns:
             return detections
         for track_id in detections.track_id.unique():
